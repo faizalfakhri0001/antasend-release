@@ -118,24 +118,3 @@ jobs:
             '${{ needs.verify.outputs.source_sha }}' \
             "$GITHUB_WORKSPACE/release-assets/backend-release-linux-amd64.tar.gz" | tee deploy-result.txt
           cat deploy-result.txt >> "$GITHUB_STEP_SUMMARY"
-
-  frontend:
-    needs: verify
-    if: needs.verify.outputs.frontend == 'true'
-    runs-on: [self-hosted, Linux, X64, apipilot-production]
-    environment: production
-    steps:
-      - name: Load verified assets from the self-hosted staging area
-        env: { RELEASE_TAG: "${{ inputs.release_tag }}", VERIFIED_RELEASE_ROOT: /home/wakatta/actions-runner-origin3/verified-releases }
-        run: |
-          set -Eeuo pipefail
-          test -d "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG"
-          cp -a "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG" release-assets
-      - name: Deploy Vercel prebuilt output and probe production
-        env: {VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN }}", VERCEL_ORG_ID: "${{ secrets.VERCEL_ORG_ID }}", VERCEL_PROJECT_ID: "${{ secrets.VERCEL_PROJECT_ID }}"}
-        run: |
-          set -Eeuo pipefail
-          mkdir -p .vercel
-          tar -xzf release-assets/frontend-vercel-prebuilt.tar.gz -C .vercel
-          npx --yes vercel@latest deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN"
-          for attempt in $(seq 1 12); do curl -fsSI https://apipilot.coopstack.cloud && exit 0; sleep 10; done; exit 1
