@@ -25,27 +25,62 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download only this release's assets
-        env: { GH_TOKEN: "${{ github.token }}" }
-        run: gh release download "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" --dir release-assets
+        env: { GH_TOKEN: "${{ github.token }}", RELEASE_TAG: "${{ inputs.release_tag }}" }
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release.json
+          RELEASE_TAG="$RELEASE_TAG" node <<'NODE'
+          const fs = require('fs');
+          const release = JSON.parse(fs.readFileSync('release.json', 'utf8'));
+          const allowed = new Set(['backend-release-linux-amd64.tar.gz', 'frontend-vercel-prebuilt.tar.gz', 'release-manifest.json', 'SHA256SUMS', 'SHA256SUMS.asc']);
+          const assets = release.assets || [];
+          if (!release.tag_name || release.tag_name !== process.env.RELEASE_TAG || assets.length < 4 || assets.length > 5 || assets.some(asset => !allowed.has(asset.name)) || new Set(assets.map(asset => asset.name)).size !== assets.length) throw new Error('release asset inventory is invalid');
+          fs.mkdirSync('release-assets', {recursive: true});
+          Promise.all(assets.map(async asset => {
+            const response = await fetch(asset.browser_download_url);
+            if (!response.ok) throw new Error(`download failed for ${asset.name}: ${response.status}`);
+            fs.writeFileSync(`release-assets/${asset.name}`, Buffer.from(await response.arrayBuffer()), {mode: 0o600});
+          })).catch(error => { console.error(error.message); process.exit(1); });
+          NODE
       - name: Verify signature, checksums, schema, and archive allowlists
         id: contract
         shell: bash
         run: |
           set -Eeuo pipefail
           cd release-assets
-          gpg --batch --dearmor < ../keys/api-pilot-release-public.asc > public-keyring.gpg
-          gpgv --keyring public-keyring.gpg SHA256SUMS.asc SHA256SUMS
+          gpg --batch --dearmor < ../keys/api-pilot-release-public.asc > ../public-keyring.gpg
+          gpgv --keyring ../public-keyring.gpg SHA256SUMS.asc SHA256SUMS
           sha256sum --strict --check SHA256SUMS
-          expected="$(jq -r '.artifacts[].name' release-manifest.json | sort)"
-          actual="$(find . -maxdepth 1 -type f -printf '%f\n' | grep -Ev '^(release-manifest.json|SHA256SUMS|SHA256SUMS.asc)$' | sort)"
-          [[ "$expected" == "$actual" ]] || { echo "unknown, missing, or duplicate release asset" >&2; exit 1; }
-          while IFS=$'\t' read -r name digest; do [[ "$(sha256sum "$name" | awk '{print $1}')" == "$digest" ]] || exit 1; done < <(jq -r '.artifacts[] | [.name,.sha256] | @tsv' release-manifest.json)
-          jq -e --slurpfile schema ../release-manifest.schema.json '.[0].schemaVersion == 1 and (. [0].sourceSha | test("^[0-9a-f]{40}$"))' release-manifest.json >/dev/null
-          tag="$(jq -r .tag release-manifest.json)"; [[ "$tag" == "${{ inputs.release_tag }}" ]]
-          backend="$(jq -r .components.backend release-manifest.json)"; frontend="$(jq -r .components.frontend release-manifest.json)"
-          [[ "$backend" == true || "$frontend" == true ]] || exit 1
+          RELEASE_TAG="${{ inputs.release_tag }}" node <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const fail = message => { console.error(message); process.exit(1); };
+          const manifest = JSON.parse(fs.readFileSync('release-manifest.json', 'utf8'));
+          const top = ['schemaVersion', 'tag', 'sourceRepository', 'sourceSha', 'builtAt', 'components', 'artifacts'];
+          if (Object.keys(manifest).sort().join() !== top.sort().join() || manifest.schemaVersion !== 1 || manifest.tag !== process.env.RELEASE_TAG || manifest.sourceRepository !== 'faizalfakhri0001/api-pilot' || !/^[0-9a-f]{40}$/.test(manifest.sourceSha)) fail('invalid release manifest');
+          if (!manifest.components || typeof manifest.components.backend !== 'boolean' || typeof manifest.components.frontend !== 'boolean' || (!manifest.components.backend && !manifest.components.frontend) || !Array.isArray(manifest.artifacts)) fail('invalid component contract');
+          const declared = manifest.artifacts.map(item => item.name).sort();
+          const actual = fs.readdirSync('.').filter(name => !['release-manifest.json', 'SHA256SUMS', 'SHA256SUMS.asc'].includes(name)).sort();
+          if (declared.join() !== actual.join() || new Set(declared).size !== declared.length) fail('unknown, missing, or duplicate release asset');
+          for (const asset of manifest.artifacts) {
+            if (!['backend-release-linux-amd64.tar.gz', 'frontend-vercel-prebuilt.tar.gz'].includes(asset.name) || !/^[0-9a-f]{64}$/.test(asset.sha256)) fail('invalid artifact declaration');
+            const digest = crypto.createHash('sha256').update(fs.readFileSync(asset.name)).digest('hex');
+            if (digest !== asset.sha256) fail(`manifest digest mismatch for ${asset.name}`);
+          }
+          const expected = new Set();
+          if (manifest.components.backend) expected.add('backend-release-linux-amd64.tar.gz');
+          if (manifest.components.frontend) expected.add('frontend-vercel-prebuilt.tar.gz');
+          if (declared.join() !== [...expected].sort().join()) fail('component artifacts do not match manifest');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `backend=${manifest.components.backend}\nfrontend=${manifest.components.frontend}\nsource_sha=${manifest.sourceSha}\n`);
+          NODE
+          backend="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("release-manifest.json")).components.backend)')"
+          frontend="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("release-manifest.json")).components.frontend)')"
           if [[ "$backend" == true ]]; then
-            tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/worker backend/bin/bootstrap-superuser backend/bin/release-migrate release-manifest.txt) -
+            tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/bootstrap-superuser backend/bin/release-migrate backend/bin/worker release-manifest.txt) -
           fi
           if [[ "$frontend" == true ]] && tar -tzf frontend-vercel-prebuilt.tar.gz | grep -Eq '(^|/)(\.env|.*\.map$|.*\.ts$|.*\.tsx$|.*\.go$|.*\.sql$)'; then exit 1; fi
           echo "backend=$backend" >> "$GITHUB_OUTPUT"; echo "frontend=$frontend" >> "$GITHUB_OUTPUT"; jq -r '"source_sha=" + .sourceSha' release-manifest.json >> "$GITHUB_OUTPUT"
