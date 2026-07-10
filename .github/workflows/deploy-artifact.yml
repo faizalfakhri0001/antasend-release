@@ -23,7 +23,7 @@ jobs:
       frontend: ${{ steps.contract.outputs.frontend }}
       source_sha: ${{ steps.contract.outputs.source_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Download only this release's assets
         env: { GH_TOKEN: "${{ github.token }}", RELEASE_TAG: "${{ inputs.release_tag }}" }
         shell: bash
@@ -83,8 +83,19 @@ jobs:
             tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/bootstrap-superuser backend/bin/release-migrate backend/bin/worker release-manifest.txt) -
           fi
           if [[ "$frontend" == true ]] && tar -tzf frontend-vercel-prebuilt.tar.gz | grep -Eq '(^|/)(\.env|.*\.map$|.*\.ts$|.*\.tsx$|.*\.go$|.*\.sql$)'; then exit 1; fi
-      - uses: actions/upload-artifact@v4
-        with: {name: verified-release, path: release-assets, retention-days: 1}
+      - name: Stage verified assets for self-hosted deployment jobs
+        env: { RELEASE_TAG: "${{ inputs.release_tag }}", VERIFIED_RELEASE_ROOT: /home/wakatta/actions-runner-origin3/verified-releases }
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          destination="$VERIFIED_RELEASE_ROOT/$RELEASE_TAG"
+          mkdir -p "$VERIFIED_RELEASE_ROOT"
+          staging="$(mktemp -d "$VERIFIED_RELEASE_ROOT/.${RELEASE_TAG}.XXXXXX")"
+          trap 'rm -rf "$staging"' EXIT
+          cp -a release-assets/. "$staging/"
+          rm -rf "$destination"
+          mv "$staging" "$destination"
+          trap - EXIT
 
   backend:
     needs: verify
@@ -92,8 +103,12 @@ jobs:
     runs-on: [self-hosted, Linux, X64, apipilot-production]
     environment: production
     steps:
-      - uses: actions/download-artifact@v4
-        with: {name: verified-release, path: release-assets}
+      - name: Load verified assets from the self-hosted staging area
+        env: { RELEASE_TAG: "${{ inputs.release_tag }}", VERIFIED_RELEASE_ROOT: /home/wakatta/actions-runner-origin3/verified-releases }
+        run: |
+          set -Eeuo pipefail
+          test -d "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG"
+          cp -a "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG" release-assets
       - name: Install immutable backend release
         shell: bash
         run: |
@@ -110,8 +125,12 @@ jobs:
     runs-on: [self-hosted, Linux, X64, apipilot-production]
     environment: production
     steps:
-      - uses: actions/download-artifact@v4
-        with: {name: verified-release, path: release-assets}
+      - name: Load verified assets from the self-hosted staging area
+        env: { RELEASE_TAG: "${{ inputs.release_tag }}", VERIFIED_RELEASE_ROOT: /home/wakatta/actions-runner-origin3/verified-releases }
+        run: |
+          set -Eeuo pipefail
+          test -d "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG"
+          cp -a "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG" release-assets
       - name: Deploy Vercel prebuilt output and probe production
         env: {VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN }}", VERCEL_ORG_ID: "${{ secrets.VERCEL_ORG_ID }}", VERCEL_PROJECT_ID: "${{ secrets.VERCEL_PROJECT_ID }}"}
         run: |
