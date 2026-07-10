@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, apipilot-production]
     outputs:
       backend: ${{ steps.contract.outputs.backend }}
       frontend: ${{ steps.contract.outputs.frontend }}
@@ -73,7 +73,7 @@ jobs:
   frontend:
     needs: verify
     if: needs.verify.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, apipilot-production]
     environment: production
     steps:
       - uses: actions/download-artifact@v4
