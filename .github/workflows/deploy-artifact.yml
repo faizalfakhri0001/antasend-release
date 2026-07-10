@@ -83,7 +83,6 @@ jobs:
             tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/bootstrap-superuser backend/bin/release-migrate backend/bin/worker release-manifest.txt) -
           fi
           if [[ "$frontend" == true ]] && tar -tzf frontend-vercel-prebuilt.tar.gz | grep -Eq '(^|/)(\.env|.*\.map$|.*\.ts$|.*\.tsx$|.*\.go$|.*\.sql$)'; then exit 1; fi
-          echo "backend=$backend" >> "$GITHUB_OUTPUT"; echo "frontend=$frontend" >> "$GITHUB_OUTPUT"; jq -r '"source_sha=" + .sourceSha' release-manifest.json >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with: {name: verified-release, path: release-assets, retention-days: 1}
 
