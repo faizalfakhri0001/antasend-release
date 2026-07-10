@@ -135,6 +135,7 @@ jobs:
         env: {VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN }}", VERCEL_ORG_ID: "${{ secrets.VERCEL_ORG_ID }}", VERCEL_PROJECT_ID: "${{ secrets.VERCEL_PROJECT_ID }}"}
         run: |
           set -Eeuo pipefail
-          tar -xzf release-assets/frontend-vercel-prebuilt.tar.gz
+          mkdir -p .vercel
+          tar -xzf release-assets/frontend-vercel-prebuilt.tar.gz -C .vercel
           npx --yes vercel@latest deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN"
           for attempt in $(seq 1 12); do curl -fsSI https://apipilot.coopstack.cloud && exit 0; sleep 10; done; exit 1
