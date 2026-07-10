@@ -1,0 +1,87 @@
+name: Deploy verified artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Signed origin3 release tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifact-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.contract.outputs.backend }}
+      frontend: ${{ steps.contract.outputs.frontend }}
+      source_sha: ${{ steps.contract.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download only this release's assets
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release download "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" --dir release-assets
+      - name: Verify signature, checksums, schema, and archive allowlists
+        id: contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd release-assets
+          gpg --batch --dearmor < ../keys/api-pilot-release-public.asc > public-keyring.gpg
+          gpgv --keyring public-keyring.gpg SHA256SUMS.asc SHA256SUMS
+          sha256sum --strict --check SHA256SUMS
+          expected="$(jq -r '.artifacts[].name' release-manifest.json | sort)"
+          actual="$(find . -maxdepth 1 -type f -printf '%f\n' | grep -Ev '^(release-manifest.json|SHA256SUMS|SHA256SUMS.asc)$' | sort)"
+          [[ "$expected" == "$actual" ]] || { echo "unknown, missing, or duplicate release asset" >&2; exit 1; }
+          while IFS=$'\t' read -r name digest; do [[ "$(sha256sum "$name" | awk '{print $1}')" == "$digest" ]] || exit 1; done < <(jq -r '.artifacts[] | [.name,.sha256] | @tsv' release-manifest.json)
+          jq -e --slurpfile schema ../release-manifest.schema.json '.[0].schemaVersion == 1 and (. [0].sourceSha | test("^[0-9a-f]{40}$"))' release-manifest.json >/dev/null
+          tag="$(jq -r .tag release-manifest.json)"; [[ "$tag" == "${{ inputs.release_tag }}" ]]
+          backend="$(jq -r .components.backend release-manifest.json)"; frontend="$(jq -r .components.frontend release-manifest.json)"
+          [[ "$backend" == true || "$frontend" == true ]] || exit 1
+          if [[ "$backend" == true ]]; then
+            tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/worker backend/bin/bootstrap-superuser backend/bin/release-migrate release-manifest.txt) -
+          fi
+          if [[ "$frontend" == true ]] && tar -tzf frontend-vercel-prebuilt.tar.gz | grep -Eq '(^|/)(\.env|.*\.map$|.*\.ts$|.*\.tsx$|.*\.go$|.*\.sql$)'; then exit 1; fi
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"; echo "frontend=$frontend" >> "$GITHUB_OUTPUT"; jq -r '"source_sha=" + .sourceSha' release-manifest.json >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: verified-release, path: release-assets, retention-days: 1}
+
+  backend:
+    needs: verify
+    if: needs.verify.outputs.backend == 'true'
+    runs-on: [self-hosted, Linux, X64, apipilot-production]
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: verified-release, path: release-assets}
+      - name: Install immutable backend release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo -n /usr/local/sbin/apipilot-origin3-deploy \
+            '${{ inputs.release_tag }}' \
+            '${{ needs.verify.outputs.source_sha }}' \
+            "$GITHUB_WORKSPACE/release-assets/backend-release-linux-amd64.tar.gz" | tee deploy-result.txt
+          cat deploy-result.txt >> "$GITHUB_STEP_SUMMARY"
+
+  frontend:
+    needs: verify
+    if: needs.verify.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: verified-release, path: release-assets}
+      - name: Deploy Vercel prebuilt output and probe production
+        env: {VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN }}", VERCEL_ORG_ID: "${{ secrets.VERCEL_ORG_ID }}", VERCEL_PROJECT_ID: "${{ secrets.VERCEL_PROJECT_ID }}"}
+        run: |
+          set -Eeuo pipefail
+          tar -xzf release-assets/frontend-vercel-prebuilt.tar.gz
+          npx --yes vercel@latest deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN"
+          for attempt in $(seq 1 12); do curl -fsSI https://apipilot.coopstack.cloud && exit 0; sleep 10; done; exit 1
