@@ -98,6 +98,8 @@ jobs:
     environment: production
     env:
       API_HEALTH_BASE_URL: https://api-apipilot.coopstack.cloud
+      HEALTH_RETRY_ATTEMPTS: "36"
+      HEALTH_RETRY_DELAY_SECONDS: "5"
     steps:
       - name: Load verified assets from the self-hosted staging area
         env: { RELEASE_TAG: "${{ inputs.release_tag }}", VERIFIED_RELEASE_ROOT: /home/wakatta/actions-runner-origin3/verified-releases }
@@ -124,8 +126,29 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error "$API_HEALTH_BASE_URL/health/live" | tee health-live.json
-          curl --fail --silent --show-error "$API_HEALTH_BASE_URL/health/ready" | tee health-ready.json
+          wait_for_health() {
+            local name="$1"
+            local output_file="$2"
+            local attempt
+            local url="$API_HEALTH_BASE_URL/health/$name"
+
+            for attempt in $(seq 1 "$HEALTH_RETRY_ATTEMPTS"); do
+              if curl --fail --silent --show-error --max-time 10 "$url" >"$output_file"; then
+                cat "$output_file"
+                return 0
+              fi
+              printf 'health %s is not ready (attempt %s/%s); retrying in %ss\n' \
+                "$name" "$attempt" "$HEALTH_RETRY_ATTEMPTS" "$HEALTH_RETRY_DELAY_SECONDS" >&2
+              sleep "$HEALTH_RETRY_DELAY_SECONDS"
+            done
+
+            printf '::error::health %s did not become ready within %ss\n' \
+              "$name" "$((HEALTH_RETRY_ATTEMPTS * HEALTH_RETRY_DELAY_SECONDS))" >&2
+            return 1
+          }
+
+          wait_for_health live health-live.json
+          wait_for_health ready health-ready.json
           printf 'live=ok\nready=ok\n' >> "$GITHUB_OUTPUT"
       - name: Publish deployment summary
         if: always()
