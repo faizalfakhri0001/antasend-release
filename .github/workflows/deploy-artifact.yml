@@ -1,4 +1,5 @@
 name: Deploy verified artifact
+run-name: Deploy ${{ inputs.release_tag }}
 
 on:
   workflow_dispatch:
@@ -20,7 +21,6 @@ jobs:
     runs-on: [self-hosted, Linux, X64, apipilot-production]
     outputs:
       backend: ${{ steps.contract.outputs.backend }}
-      frontend: ${{ steps.contract.outputs.frontend }}
       source_sha: ${{ steps.contract.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v5
@@ -36,9 +36,9 @@ jobs:
           RELEASE_TAG="$RELEASE_TAG" node <<'NODE'
           const fs = require('fs');
           const release = JSON.parse(fs.readFileSync('release.json', 'utf8'));
-          const allowed = new Set(['backend-release-linux-amd64.tar.gz', 'frontend-vercel-prebuilt.tar.gz', 'release-manifest.json', 'SHA256SUMS', 'SHA256SUMS.asc']);
+          const allowed = new Set(['backend-release-linux-amd64.tar.gz', 'release-manifest.json', 'SHA256SUMS', 'SHA256SUMS.asc']);
           const assets = release.assets || [];
-          if (!release.tag_name || release.tag_name !== process.env.RELEASE_TAG || assets.length < 4 || assets.length > 5 || assets.some(asset => !allowed.has(asset.name)) || new Set(assets.map(asset => asset.name)).size !== assets.length) throw new Error('release asset inventory is invalid');
+          if (!release.tag_name || release.tag_name !== process.env.RELEASE_TAG || assets.length !== 4 || assets.some(asset => !allowed.has(asset.name)) || new Set(assets.map(asset => asset.name)).size !== assets.length) throw new Error('release asset inventory is invalid');
           fs.mkdirSync('release-assets', {recursive: true});
           Promise.all(assets.map(async asset => {
             const response = await fetch(asset.browser_download_url);
@@ -62,27 +62,21 @@ jobs:
           const manifest = JSON.parse(fs.readFileSync('release-manifest.json', 'utf8'));
           const top = ['schemaVersion', 'tag', 'sourceRepository', 'sourceSha', 'builtAt', 'components', 'artifacts'];
           if (Object.keys(manifest).sort().join() !== top.sort().join() || manifest.schemaVersion !== 1 || manifest.tag !== process.env.RELEASE_TAG || manifest.sourceRepository !== 'faizalfakhri0001/api-pilot' || !/^[0-9a-f]{40}$/.test(manifest.sourceSha)) fail('invalid release manifest');
-          if (!manifest.components || typeof manifest.components.backend !== 'boolean' || typeof manifest.components.frontend !== 'boolean' || (!manifest.components.backend && !manifest.components.frontend) || !Array.isArray(manifest.artifacts)) fail('invalid component contract');
+          if (!manifest.components || Object.keys(manifest.components).length !== 1 || manifest.components.backend !== true || !Array.isArray(manifest.artifacts)) fail('invalid component contract');
           const declared = manifest.artifacts.map(item => item.name).sort();
           const actual = fs.readdirSync('.').filter(name => !['release-manifest.json', 'SHA256SUMS', 'SHA256SUMS.asc'].includes(name)).sort();
           if (declared.join() !== actual.join() || new Set(declared).size !== declared.length) fail('unknown, missing, or duplicate release asset');
           for (const asset of manifest.artifacts) {
-            if (!['backend-release-linux-amd64.tar.gz', 'frontend-vercel-prebuilt.tar.gz'].includes(asset.name) || !/^[0-9a-f]{64}$/.test(asset.sha256)) fail('invalid artifact declaration');
+            if (asset.name !== 'backend-release-linux-amd64.tar.gz' || !/^[0-9a-f]{64}$/.test(asset.sha256)) fail('invalid artifact declaration');
             const digest = crypto.createHash('sha256').update(fs.readFileSync(asset.name)).digest('hex');
             if (digest !== asset.sha256) fail(`manifest digest mismatch for ${asset.name}`);
           }
-          const expected = new Set();
-          if (manifest.components.backend) expected.add('backend-release-linux-amd64.tar.gz');
-          if (manifest.components.frontend) expected.add('frontend-vercel-prebuilt.tar.gz');
-          if (declared.join() !== [...expected].sort().join()) fail('component artifacts do not match manifest');
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `backend=${manifest.components.backend}\nfrontend=${manifest.components.frontend}\nsource_sha=${manifest.sourceSha}\n`);
+          if (declared.join() !== 'backend-release-linux-amd64.tar.gz') fail('component artifacts do not match manifest');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `backend=true\nsource_sha=${manifest.sourceSha}\n`);
           NODE
           backend="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("release-manifest.json")).components.backend)')"
-          frontend="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("release-manifest.json")).components.frontend)')"
-          if [[ "$backend" == true ]]; then
-            tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/bootstrap-superuser backend/bin/release-migrate backend/bin/worker release-manifest.txt) -
-          fi
-          if [[ "$frontend" == true ]] && tar -tzf frontend-vercel-prebuilt.tar.gz | grep -Eq '(^|/)(\.env|.*\.map$|.*\.ts$|.*\.tsx$|.*\.go$|.*\.sql$)'; then exit 1; fi
+          [[ "$backend" == true ]]
+          tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/bootstrap-superuser backend/bin/release-migrate backend/bin/worker release-manifest.txt) -
       - name: Stage verified assets for self-hosted deployment jobs
         env: { RELEASE_TAG: "${{ inputs.release_tag }}", VERIFIED_RELEASE_ROOT: /home/wakatta/actions-runner-origin3/verified-releases }
         shell: bash
@@ -102,6 +96,8 @@ jobs:
     if: needs.verify.outputs.backend == 'true'
     runs-on: [self-hosted, Linux, X64, apipilot-production]
     environment: production
+    env:
+      API_HEALTH_BASE_URL: https://api-apipilot.coopstack.cloud
     steps:
       - name: Load verified assets from the self-hosted staging area
         env: { RELEASE_TAG: "${{ inputs.release_tag }}", VERIFIED_RELEASE_ROOT: /home/wakatta/actions-runner-origin3/verified-releases }
@@ -110,6 +106,7 @@ jobs:
           test -d "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG"
           cp -a "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG" release-assets
       - name: Install immutable backend release
+        id: install
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -117,4 +114,29 @@ jobs:
             '${{ inputs.release_tag }}' \
             '${{ needs.verify.outputs.source_sha }}' \
             "$GITHUB_WORKSPACE/release-assets/backend-release-linux-amd64.tar.gz" | tee deploy-result.txt
-          cat deploy-result.txt >> "$GITHUB_STEP_SUMMARY"
+          for key in previous current backup health; do
+            value="$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' deploy-result.txt)"
+            test -n "$value"
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT"
+          done
+      - name: Verify production health
+        id: health
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error "$API_HEALTH_BASE_URL/health/live" | tee health-live.json
+          curl --fail --silent --show-error "$API_HEALTH_BASE_URL/health/ready" | tee health-ready.json
+          printf 'live=ok\nready=ok\n' >> "$GITHUB_OUTPUT"
+      - name: Publish deployment summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Backend production deployment"
+            echo "- Source SHA: \`${{ needs.verify.outputs.source_sha }}\`"
+            echo "- Previous release: \`${{ steps.install.outputs.previous || 'not recorded' }}\`"
+            echo "- Current release: \`${{ steps.install.outputs.current || 'not recorded' }}\`"
+            echo "- Backup checkpoint: \`${{ steps.install.outputs.backup || 'not recorded' }}\`"
+            echo "- Helper health: \`${{ steps.install.outputs.health || 'not recorded' }}\`"
+            echo "- Public health: live=${{ steps.health.outputs.live || 'not completed' }}, ready=${{ steps.health.outputs.ready || 'not completed' }}"
+          } >> "$GITHUB_STEP_SUMMARY"

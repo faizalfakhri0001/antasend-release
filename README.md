@@ -13,4 +13,5 @@ rtk bash scripts/sync-origin3-control-repo.sh --gpg-key <fingerprint>
 ```
 
 Review and push that worktree separately. Configure the `production` environment on origin3
-with reviewers, VPS secrets, and Vercel secrets before dispatching a release.
+with reviewers and the VPS runner before dispatching a release. Frontend Vercel credentials and
+prebuilt output stay on the deployer's workstation.

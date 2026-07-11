@@ -9,7 +9,7 @@
     "sourceRepository": {"const": "faizalfakhri0001/api-pilot"},
     "sourceSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "builtAt": {"type": "string", "format": "date-time"},
-    "components": {"type": "object", "required": ["backend", "frontend"], "additionalProperties": false, "properties": {"backend": {"type": "boolean"}, "frontend": {"type": "boolean"}}},
-    "artifacts": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"type": "object", "required": ["name", "sha256"], "additionalProperties": false, "properties": {"name": {"enum": ["backend-release-linux-amd64.tar.gz", "frontend-vercel-prebuilt.tar.gz"]}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}
+    "components": {"type": "object", "required": ["backend"], "additionalProperties": false, "properties": {"backend": {"const": true}}},
+    "artifacts": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "object", "required": ["name", "sha256"], "additionalProperties": false, "properties": {"name": {"const": "backend-release-linux-amd64.tar.gz"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}
   }
 }
