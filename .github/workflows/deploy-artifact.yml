@@ -121,22 +121,6 @@ jobs:
             test -n "$value"
             printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT"
           done
-      - name: Apply signed backend environment patch
-        id: managed_env
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          patch_result="$(tar -xOf release-assets/backend-release-linux-amd64.tar.gz backend/deployment.env | sudo -n /usr/local/sbin/apipilot-apply-deployment-env /etc/apipilot/apipilot.env)"
-          case "$patch_result" in
-            changed)
-              sudo -n systemctl restart apipilot-api.service apipilot-worker.service
-              sudo -n systemctl is-active --quiet apipilot-api.service
-              sudo -n systemctl is-active --quiet apipilot-worker.service
-              ;;
-            unchanged) ;;
-            *) echo "unexpected managed environment result" >&2; exit 1 ;;
-          esac
-          printf 'result=%s\n' "$patch_result" >> "$GITHUB_OUTPUT"
       - name: Verify production health
         id: health
         shell: bash
@@ -176,7 +160,6 @@ jobs:
             echo "- Previous release: \`${{ steps.install.outputs.previous || 'not recorded' }}\`"
             echo "- Current release: \`${{ steps.install.outputs.current || 'not recorded' }}\`"
             echo "- Backup checkpoint: \`${{ steps.install.outputs.backup || 'not recorded' }}\`"
-            echo "- Managed backend environment: \`${{ steps.managed_env.outputs.result || 'not completed' }}\`"
             echo "- Helper health: \`${{ steps.install.outputs.health || 'not recorded' }}\`"
             echo "- Public health: live=${{ steps.health.outputs.live || 'not completed' }}, ready=${{ steps.health.outputs.ready || 'not completed' }}"
           } >> "$GITHUB_STEP_SUMMARY"
