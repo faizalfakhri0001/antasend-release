@@ -1,6 +1,6 @@
 # API Pilot artifact-only release control
 
-This directory is the complete non-source payload for `faizalfakhri0001/api-pilot-release`.
+This directory is the complete non-source payload for `faizalfakhri0001/antasend-release`.
 It contains only the verification/deployment workflow, its JSON contract, and the deployer
 public key. Do not add application source, migration SQL, shell scripts from the application,
 environment files, or Vercel pull output.
