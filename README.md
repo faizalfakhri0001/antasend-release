@@ -13,6 +13,11 @@ the helper installation, set `VPS_SUDO_PASSWORD` as a temporary `production` env
 run the workflow, then delete the secret after the checksum is confirmed. The workflow installs
 the exact no-password rule required by release preflight; it does not grant generic root access.
 
+`Recover partial immutable release` is an emergency workflow for a release directory created
+before activation failed. It requires a temporary `VPS_SUDO_PASSWORD` production secret and
+removes only a tag whose SHA matches the input, is not `/opt/apipilot/current`, and contains the
+expected API binary. Delete the temporary secret before rerunning `Deploy verified artifact`.
+
 Bootstrap it explicitly (this command writes to the separate origin3 worktree, never the
 source repository):
 

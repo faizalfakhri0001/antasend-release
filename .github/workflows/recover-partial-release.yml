@@ -1,0 +1,59 @@
+name: Recover partial immutable release
+run-name: Recover ${{ inputs.release_tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Failed immutable release tag to remove
+        required: true
+        type: string
+      source_sha:
+        description: Full source SHA recorded by the release manifest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifact-production
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: [self-hosted, Linux, X64, apipilot-production]
+    environment: production
+    env:
+      VPS_SUDO_PASSWORD: ${{ secrets.VPS_SUDO_PASSWORD }}
+    steps:
+      - name: Remove only an unactivated partial release
+        id: recover
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          release_tag='${{ inputs.release_tag }}'
+          source_sha='${{ inputs.source_sha }}'
+          [[ "$release_tag" =~ ^deploy-[0-9a-f]{40}-[0-9]{14}$ ]]
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$release_tag" == "deploy-${source_sha}-"* ]]
+          test -n "${VPS_SUDO_PASSWORD:-}"
+          run_as_root() {
+            printf '%s\n' "$VPS_SUDO_PASSWORD" | sudo -S -p '' "$@"
+          }
+          release_root=/opt/apipilot/releases
+          target="$release_root/$release_tag"
+          current="$(run_as_root readlink -f /opt/apipilot/current || true)"
+          test -d "$target"
+          test ! -L "$target"
+          test "$current" != "$target"
+          test -f "$target/backend/bin/api"
+          run_as_root rm -rf --one-file-system "$target"
+          test ! -e "$target"
+          printf 'removed=%s\n' "$target" >> "$GITHUB_OUTPUT"
+      - name: Publish recovery summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Partial release recovery" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Removed path: \`${{ steps.recover.outputs.removed || 'not removed' }}\`" >> "$GITHUB_STEP_SUMMARY"
