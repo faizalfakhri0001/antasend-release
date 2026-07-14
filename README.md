@@ -8,7 +8,9 @@ migration SQL, environment files, or Vercel pull output.
 Run `Update production deployment helper` after a reviewed change to
 `scripts/apipilot-apply-deployment-env`, before publishing a release that uses a newly
 managed backend environment key. The job requires the same `production` approval as a backend
-release and verifies the installed helper checksum.
+release and verifies the installed helper checksum. If the runner sudoers policy does not permit
+the helper installation, set `VPS_SUDO_PASSWORD` as a temporary `production` environment secret,
+run the workflow, then delete the secret after the checksum is confirmed.
 
 Bootstrap it explicitly (this command writes to the separate origin3 worktree, never the
 source repository):
