@@ -44,6 +44,14 @@ jobs:
           release_root=/opt/apipilot/releases
           target="$release_root/$release_tag"
           current="$(run_as_root readlink -f /opt/apipilot/current || true)"
+          target_directory=false
+          target_symlink=false
+          target_api=false
+          run_as_root test -d "$target" && target_directory=true || true
+          run_as_root test -L "$target" && target_symlink=true || true
+          run_as_root test -f "$target/backend/bin/api" && target_api=true || true
+          printf 'current=%s target=%s target_directory=%s target_symlink=%s target_api=%s\n' \
+            "$current" "$target" "$target_directory" "$target_symlink" "$target_api"
           test -d "$target"
           test ! -L "$target"
           test "$current" != "$target"
