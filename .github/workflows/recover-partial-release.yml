@@ -52,12 +52,12 @@ jobs:
           run_as_root test -f "$target/backend/bin/api" && target_api=true || true
           printf 'current=%s target=%s target_directory=%s target_symlink=%s target_api=%s\n' \
             "$current" "$target" "$target_directory" "$target_symlink" "$target_api"
-          test -d "$target"
-          test ! -L "$target"
+          [[ "$target_directory" == true ]]
+          [[ "$target_symlink" == false ]]
           test "$current" != "$target"
-          test -f "$target/backend/bin/api"
+          [[ "$target_api" == true ]]
           run_as_root rm -rf --one-file-system "$target"
-          test ! -e "$target"
+          run_as_root test ! -e "$target"
           printf 'removed=%s\n' "$target" >> "$GITHUB_OUTPUT"
       - name: Publish recovery summary
         if: always()
