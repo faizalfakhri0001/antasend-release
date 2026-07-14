@@ -10,7 +10,8 @@ Run `Update production deployment helper` after a reviewed change to
 managed backend environment key. The job requires the same `production` approval as a backend
 release and verifies the installed helper checksum. If the runner sudoers policy does not permit
 the helper installation, set `VPS_SUDO_PASSWORD` as a temporary `production` environment secret,
-run the workflow, then delete the secret after the checksum is confirmed.
+run the workflow, then delete the secret after the checksum is confirmed. The workflow installs
+the exact no-password rule required by release preflight; it does not grant generic root access.
 
 Bootstrap it explicitly (this command writes to the separate origin3 worktree, never the
 source repository):

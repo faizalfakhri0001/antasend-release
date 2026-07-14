@@ -40,6 +40,14 @@ jobs:
           run_as_root install -o root -g root -m 0755 \
             scripts/apipilot-apply-deployment-env \
             /usr/local/sbin/apipilot-apply-deployment-env
+          runner_user="$(id -un)"
+          [[ "$runner_user" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          sudoers_file="$(mktemp)"
+          trap 'rm -f "$sudoers_file"' EXIT
+          printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/apipilot-apply-deployment-env --check /etc/apipilot/apipilot.env\n' "$runner_user" > "$sudoers_file"
+          run_as_root visudo -cf "$sudoers_file" >/dev/null
+          run_as_root install -o root -g root -m 0440 "$sudoers_file" /etc/sudoers.d/apipilot-origin3-env-preflight
+          run_as_root visudo -cf /etc/sudoers.d/apipilot-origin3-env-preflight >/dev/null
           actual="$(run_as_root sha256sum /usr/local/sbin/apipilot-apply-deployment-env | awk '{print $1}')"
           test "$actual" = "$expected"
           printf 'sha256=%s\n' "$actual" >> "$GITHUB_OUTPUT"
@@ -49,3 +57,4 @@ jobs:
         run: |
           echo "## Production deployment helper" >> "$GITHUB_STEP_SUMMARY"
           echo "- SHA-256: \`${{ steps.install.outputs.sha256 || 'not recorded' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Preflight sudoers rule: \`/etc/sudoers.d/apipilot-origin3-env-preflight\`" >> "$GITHUB_STEP_SUMMARY"
