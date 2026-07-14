@@ -6,7 +6,7 @@
   "properties": {
     "schemaVersion": {"const": 1},
     "tag": {"type": "string", "pattern": "^deploy-[0-9a-f]{40}-[0-9]{14}$"},
-    "sourceRepository": {"const": "faizalfakhri0001/api-pilot"},
+    "sourceRepository": {"const": "faizalfakhri0001/antasend"},
     "sourceSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "builtAt": {"type": "string", "format": "date-time"},
     "components": {"type": "object", "required": ["backend"], "additionalProperties": false, "properties": {"backend": {"const": true}}},

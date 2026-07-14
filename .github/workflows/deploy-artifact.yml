@@ -61,7 +61,7 @@ jobs:
           const fail = message => { console.error(message); process.exit(1); };
           const manifest = JSON.parse(fs.readFileSync('release-manifest.json', 'utf8'));
           const top = ['schemaVersion', 'tag', 'sourceRepository', 'sourceSha', 'builtAt', 'components', 'artifacts'];
-          if (Object.keys(manifest).sort().join() !== top.sort().join() || manifest.schemaVersion !== 1 || manifest.tag !== process.env.RELEASE_TAG || manifest.sourceRepository !== 'faizalfakhri0001/api-pilot' || !/^[0-9a-f]{40}$/.test(manifest.sourceSha)) fail('invalid release manifest');
+          if (Object.keys(manifest).sort().join() !== top.sort().join() || manifest.schemaVersion !== 1 || manifest.tag !== process.env.RELEASE_TAG || manifest.sourceRepository !== 'faizalfakhri0001/antasend' || !/^[0-9a-f]{40}$/.test(manifest.sourceSha)) fail('invalid release manifest');
           if (!manifest.components || Object.keys(manifest.components).length !== 1 || manifest.components.backend !== true || !Array.isArray(manifest.artifacts)) fail('invalid component contract');
           const declared = manifest.artifacts.map(item => item.name).sort();
           const actual = fs.readdirSync('.').filter(name => !['release-manifest.json', 'SHA256SUMS', 'SHA256SUMS.asc'].includes(name)).sort();
