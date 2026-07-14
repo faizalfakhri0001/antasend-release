@@ -25,24 +25,22 @@ jobs:
         run: |
           set -Eeuo pipefail
           expected="$(sha256sum scripts/apipilot-apply-deployment-env | awk '{print $1}')"
-          install_helper() {
-            sudo -n install -o root -g root -m 0755 \
-              scripts/apipilot-apply-deployment-env \
-              /usr/local/sbin/apipilot-apply-deployment-env 2>/dev/null || {
+          run_as_root() {
+            if sudo -n "$@" 2>/dev/null; then
+              return 0
+            fi
+            {
                 test -n "${VPS_SUDO_PASSWORD:-}" || {
-                  echo "VPS_SUDO_PASSWORD is required when sudoers does not allow helper installation" >&2
+                  echo "VPS_SUDO_PASSWORD is required when sudoers does not allow helper maintenance" >&2
                   return 1
                 }
-                printf '%s\n' "$VPS_SUDO_PASSWORD" | sudo -S -p '' install -o root -g root -m 0755 \
-                  scripts/apipilot-apply-deployment-env \
-                  /usr/local/sbin/apipilot-apply-deployment-env
-              }
+                printf '%s\n' "$VPS_SUDO_PASSWORD" | sudo -S -p '' "$@"
+            }
           }
-          install_helper
-          actual="$(sudo -n sha256sum /usr/local/sbin/apipilot-apply-deployment-env 2>/dev/null | awk '{print $1}')"
-          if [[ -z "$actual" ]]; then
-            actual="$(printf '%s\n' "$VPS_SUDO_PASSWORD" | sudo -S -p '' sha256sum /usr/local/sbin/apipilot-apply-deployment-env | awk '{print $1}')"
-          fi
+          run_as_root install -o root -g root -m 0755 \
+            scripts/apipilot-apply-deployment-env \
+            /usr/local/sbin/apipilot-apply-deployment-env
+          actual="$(run_as_root sha256sum /usr/local/sbin/apipilot-apply-deployment-env | awk '{print $1}')"
           test "$actual" = "$expected"
           printf 'sha256=%s\n' "$actual" >> "$GITHUB_OUTPUT"
       - name: Publish helper summary
