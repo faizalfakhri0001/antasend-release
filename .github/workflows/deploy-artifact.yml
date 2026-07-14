@@ -107,6 +107,12 @@ jobs:
           set -Eeuo pipefail
           test -d "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG"
           cp -a "$VERIFIED_RELEASE_ROOT/$RELEASE_TAG" release-assets
+      - name: Preflight deployment environment patch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tar -xOf release-assets/backend-release-linux-amd64.tar.gz backend/deployment.env |
+            sudo -n /usr/local/sbin/apipilot-apply-deployment-env --check /etc/apipilot/apipilot.env
       - name: Install immutable backend release
         id: install
         shell: bash

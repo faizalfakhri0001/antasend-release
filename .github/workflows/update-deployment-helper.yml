@@ -1,0 +1,37 @@
+name: Update production deployment helper
+run-name: Update production deployment helper
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifact-production
+  cancel-in-progress: false
+
+jobs:
+  update-helper:
+    runs-on: [self-hosted, Linux, X64, apipilot-production]
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install verified deployment environment helper
+        id: install
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected="$(sha256sum scripts/apipilot-apply-deployment-env | awk '{print $1}')"
+          sudo -n install -o root -g root -m 0755 \
+            scripts/apipilot-apply-deployment-env \
+            /usr/local/sbin/apipilot-apply-deployment-env
+          actual="$(sudo -n sha256sum /usr/local/sbin/apipilot-apply-deployment-env | awk '{print $1}')"
+          test "$actual" = "$expected"
+          printf 'sha256=%s\n' "$actual" >> "$GITHUB_OUTPUT"
+      - name: Publish helper summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Production deployment helper" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA-256: \`${{ steps.install.outputs.sha256 || 'not recorded' }}\`" >> "$GITHUB_STEP_SUMMARY"

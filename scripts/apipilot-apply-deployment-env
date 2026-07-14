@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+check_only=false
+case "$#:${1:-}" in
+  1:*) environment_file="$1" ;;
+  2:--check)
+    check_only=true
+    environment_file="$2"
+    ;;
+  *)
+    echo "usage: apipilot-apply-deployment-env [--check] <environment-file>" >&2
+    exit 2
+    ;;
+esac
+
+[[ -f "$environment_file" && ! -L "$environment_file" ]] || {
+  echo "environment file must be a regular file" >&2
+  exit 2
+}
+
+patch_file="$(mktemp)"
+trap 'rm -f "$patch_file"' EXIT
+cat > "$patch_file"
+
+python3 - "$environment_file" "$patch_file" "$check_only" <<'PY'
+from pathlib import Path
+import os
+import re
+import stat
+import sys
+import tempfile
+from urllib.parse import urlsplit
+
+environment_path = Path(sys.argv[1])
+patch_path = Path(sys.argv[2])
+check_only = sys.argv[3] == "true"
+entry = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
+boolean_keys = {"BUG_REPORTS_ENABLED", "REQUEST_TESTNG_GENERATOR_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED"}
+origin_keys = {"APP_ALLOWED_ORIGINS", "APP_URL"}
+allowed_keys = boolean_keys | origin_keys
+entries = patch_path.read_text().splitlines()
+if not entries:
+    raise SystemExit("deployment environment patch is empty")
+
+
+def is_https_origin(value):
+    if not value or any(character.isspace() for character in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname is not None
+        and parsed.username is None
+        and parsed.password is None
+        and port is None
+        and parsed.path in ("", "/")
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+updates = {}
+for line in entries:
+    match = entry.fullmatch(line)
+    if not match:
+        raise SystemExit("deployment environment patch contains an invalid entry")
+    key, value = match.groups()
+    if key in updates:
+        raise SystemExit("deployment environment patch contains a duplicate key")
+    if key not in allowed_keys:
+        raise SystemExit("deployment environment patch contains an unmanaged key")
+    if key in boolean_keys and value not in {"true", "false"}:
+        raise SystemExit("deployment environment patch contains an invalid boolean value")
+    if key == "APP_URL" and not is_https_origin(value):
+        raise SystemExit("deployment environment patch contains an invalid APP_URL")
+    if key == "APP_ALLOWED_ORIGINS":
+        origins = value.split(",")
+        if not origins or len(set(origins)) != len(origins) or not all(is_https_origin(origin) for origin in origins):
+            raise SystemExit("deployment environment patch contains invalid APP_ALLOWED_ORIGINS")
+    updates[key] = value
+
+if check_only:
+    print("valid")
+    raise SystemExit(0)
+
+original = environment_path.read_text()
+result = []
+seen = set()
+for line in original.splitlines():
+    key, separator, _ = line.partition("=")
+    if separator and key in updates:
+        if key not in seen:
+            result.append(f"{key}={updates[key]}")
+            seen.add(key)
+        continue
+    result.append(line)
+for key in sorted(updates):
+    if key not in seen:
+        result.append(f"{key}={updates[key]}")
+updated = "\n".join(result) + "\n"
+
+if updated == original:
+    print("unchanged")
+    raise SystemExit(0)
+
+metadata = environment_path.stat()
+descriptor, temporary = tempfile.mkstemp(prefix=f".{environment_path.name}.", dir=str(environment_path.parent))
+try:
+    with os.fdopen(descriptor, "w") as handle:
+        handle.write(updated)
+    os.chmod(temporary, stat.S_IMODE(metadata.st_mode))
+    os.chown(temporary, metadata.st_uid, metadata.st_gid)
+    os.replace(temporary, environment_path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+
+print("changed")
+PY
