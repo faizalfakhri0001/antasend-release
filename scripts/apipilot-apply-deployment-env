@@ -36,7 +36,7 @@ environment_path = Path(sys.argv[1])
 patch_path = Path(sys.argv[2])
 check_only = sys.argv[3] == "true"
 entry = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
-boolean_keys = {"BUG_REPORTS_ENABLED", "REQUEST_TESTNG_GENERATOR_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED"}
+boolean_keys = {"BUG_REPORTS_ENABLED", "REQUEST_TESTNG_GENERATOR_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED", "TESTPILOT_RICH_ARTIFACTS_ENABLED"}
 origin_keys = {"APP_ALLOWED_ORIGINS", "APP_URL"}
 allowed_keys = boolean_keys | origin_keys
 entries = patch_path.read_text().splitlines()
