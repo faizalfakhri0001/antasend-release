@@ -36,9 +36,10 @@ environment_path = Path(sys.argv[1])
 patch_path = Path(sys.argv[2])
 check_only = sys.argv[3] == "true"
 entry = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
-boolean_keys = {"BUG_REPORTS_ENABLED", "REQUEST_TESTNG_GENERATOR_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED", "TESTPILOT_RICH_ARTIFACTS_ENABLED"}
+boolean_keys = {"ADVANCED_FLOW_NODES_ENABLED", "BUG_REPORTS_ENABLED", "FLOW_ENGINE_V2_RUNTIME", "FLOW_ENGINE_V2_SHADOW_COMPILE", "FLOW_ENGINE_V2_KILL_SWITCH", "REQUEST_TESTNG_GENERATOR_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED", "TESTPILOT_RICH_ARTIFACTS_ENABLED"}
+canary_keys = {"FLOW_ENGINE_V2_CANARY_WORKSPACES"}
 origin_keys = {"APP_ALLOWED_ORIGINS", "APP_URL"}
-allowed_keys = boolean_keys | origin_keys
+allowed_keys = boolean_keys | canary_keys | origin_keys
 entries = patch_path.read_text().splitlines()
 if not entries:
     raise SystemExit("deployment environment patch is empty")
@@ -75,6 +76,11 @@ for line in entries:
         raise SystemExit("deployment environment patch contains an unmanaged key")
     if key in boolean_keys and value not in {"true", "false"}:
         raise SystemExit("deployment environment patch contains an invalid boolean value")
+    if key in canary_keys and value != "none":
+        candidates = value.split(",")
+        uuid_pattern = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        if len(candidates) > 200 or len(set(candidates)) != len(candidates) or not all(uuid_pattern.fullmatch(candidate) for candidate in candidates):
+            raise SystemExit("deployment environment patch contains invalid flow canary workspace ids")
     if key == "APP_URL" and not is_https_origin(value):
         raise SystemExit("deployment environment patch contains an invalid APP_URL")
     if key == "APP_ALLOWED_ORIGINS":
