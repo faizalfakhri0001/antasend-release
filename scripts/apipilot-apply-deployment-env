@@ -93,7 +93,7 @@ for line in entries:
         origins = value.split(",")
         if not origins or len(set(origins)) != len(origins) or not all(is_https_origin(origin) for origin in origins):
             raise SystemExit("deployment environment patch contains invalid MCP_ALLOWED_ORIGINS")
-    if key == "MCP_HTTP_ADDR" and not re.fullmatch(r"127\\.0\\.0\\.1:[1-9][0-9]{0,4}", value):
+    if key == "MCP_HTTP_ADDR" and not re.fullmatch(r"127\.0\.0\.1:[1-9][0-9]{0,4}", value):
         raise SystemExit("deployment environment patch contains an invalid MCP_HTTP_ADDR")
     if key == "MCP_REQUEST_MAX_BYTES" and (not value.isdecimal() or not 1024 <= int(value) <= 10485760):
         raise SystemExit("deployment environment patch contains an invalid MCP_REQUEST_MAX_BYTES")
