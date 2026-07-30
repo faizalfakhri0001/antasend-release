@@ -76,7 +76,7 @@ jobs:
           NODE
           backend="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("release-manifest.json")).components.backend)')"
           [[ "$backend" == true ]]
-          tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/bootstrap-superuser backend/bin/release-migrate backend/bin/worker backend/deployment.env release-manifest.txt) -
+          tar -tzf backend-release-linux-amd64.tar.gz | sed 's:/$::' | sort -u | diff -u <(printf '%s\n' backend backend/bin backend/bin/api backend/bin/bootstrap-superuser backend/bin/jsonata-worker backend/bin/release-migrate backend/bin/worker backend/deployment.env release-manifest.txt) -
       - name: Stage verified assets for self-hosted deployment jobs
         env: { RELEASE_TAG: "${{ inputs.release_tag }}", VERIFIED_RELEASE_ROOT: /home/wakatta/actions-runner-origin3/verified-releases }
         shell: bash
