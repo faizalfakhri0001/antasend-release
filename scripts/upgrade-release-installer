@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+target="${1:-/usr/local/sbin/apipilot-origin3-deploy}"
+
+fail() {
+  printf 'release installer upgrade failed: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ $# -le 1 ]] || fail 'usage: upgrade-release-installer [path-to-helper]'
+[[ -f "$target" && ! -L "$target" ]] || fail "expected a regular helper file: $target"
+command -v perl >/dev/null 2>&1 || fail 'perl is required to update the archive allowlist safely'
+
+has_literal_allowlist_entry() {
+  grep -Fq 'backend/bin/bootstrap-superuser\nbackend/bin/jsonata-worker\nbackend/bin/release-migrate' "$1"
+}
+
+has_multiline_allowlist_entry() {
+  awk '
+    previous == "backend/bin/bootstrap-superuser" && $0 == "backend/bin/jsonata-worker" { found = 1 }
+    { previous = $0 }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
+
+if has_literal_allowlist_entry "$target" || has_multiline_allowlist_entry "$target"; then
+  printf 'release_installer=jsonata_allowlist=present\n'
+  exit 0
+fi
+
+temporary="$(mktemp "${target}.XXXXXX")"
+cleanup() { rm -f "$temporary"; }
+trap cleanup EXIT
+cp "$target" "$temporary"
+
+if grep -Fq 'backend/bin/bootstrap-superuser\nbackend/bin/release-migrate' "$temporary"; then
+  perl -0pi -e 's{(backend/bin/bootstrap-superuser\\n)(backend/bin/release-migrate)}{$1backend/bin/jsonata-worker\\n$2}' "$temporary"
+else
+  awk '
+    $0 == "backend/bin/bootstrap-superuser" {
+      print
+      print "backend/bin/jsonata-worker"
+      inserted += 1
+      next
+    }
+    { print }
+    END { exit(inserted == 1 ? 0 : 1) }
+  ' "$temporary" > "${temporary}.rewritten" || fail 'could not locate the immutable archive allowlist'
+  mv -f -- "${temporary}.rewritten" "$temporary"
+fi
+
+has_literal_allowlist_entry "$temporary" || has_multiline_allowlist_entry "$temporary" || fail 'updated helper does not allow the JSONata worker'
+bash -n "$temporary"
+chmod 0755 "$temporary"
+mv -f "$temporary" "$target"
+printf 'release_installer=jsonata_allowlist=present\n'
