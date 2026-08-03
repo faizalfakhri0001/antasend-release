@@ -34,17 +34,34 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release.json
           RELEASE_TAG="$RELEASE_TAG" node <<'NODE'
+          const {execFileSync} = require('child_process');
           const fs = require('fs');
           const release = JSON.parse(fs.readFileSync('release.json', 'utf8'));
           const allowed = new Set(['backend-release-linux-amd64.tar.gz', 'release-manifest.json', 'SHA256SUMS', 'SHA256SUMS.asc']);
           const assets = release.assets || [];
           if (!release.tag_name || release.tag_name !== process.env.RELEASE_TAG || assets.length !== 4 || assets.some(asset => !allowed.has(asset.name)) || new Set(assets.map(asset => asset.name)).size !== assets.length) throw new Error('release asset inventory is invalid');
+          const apiBase = process.env.GITHUB_API_URL || 'https://api.github.com';
+          const expectedAssetPrefix = `${apiBase}/repos/${process.env.GITHUB_REPOSITORY}/releases/assets/`;
+          if (assets.some(asset => typeof asset.url !== 'string' || !asset.url.startsWith(expectedAssetPrefix))) throw new Error('release asset API URL is invalid');
           fs.mkdirSync('release-assets', {recursive: true});
-          Promise.all(assets.map(async asset => {
-            const response = await fetch(asset.browser_download_url);
-            if (!response.ok) throw new Error(`download failed for ${asset.name}: ${response.status}`);
-            fs.writeFileSync(`release-assets/${asset.name}`, Buffer.from(await response.arrayBuffer()), {mode: 0o600});
-          })).catch(error => { console.error(error.message); process.exit(1); });
+          for (const asset of assets) {
+            const output = `release-assets/${asset.name}`;
+            try {
+              execFileSync('curl', [
+                '--fail', '--silent', '--show-error', '--location',
+                '--retry', '4', '--retry-delay', '2',
+                '-H', `Authorization: Bearer ${process.env.GH_TOKEN}`,
+                '-H', 'Accept: application/octet-stream',
+                '-H', 'X-GitHub-Api-Version: 2022-11-28',
+                '--output', output,
+                asset.url,
+              ], {stdio: 'inherit'});
+              fs.chmodSync(output, 0o600);
+            } catch {
+              console.error(`download failed for ${asset.name}`);
+              process.exit(1);
+            }
+          }
           NODE
       - name: Verify signature, checksums, schema, and archive allowlists
         id: contract
