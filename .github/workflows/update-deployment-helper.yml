@@ -50,11 +50,34 @@ jobs:
           run_as_root visudo -cf /etc/sudoers.d/apipilot-origin3-env-preflight >/dev/null
           actual="$(run_as_root sha256sum /usr/local/sbin/apipilot-apply-deployment-env | awk '{print $1}')"
           test "$actual" = "$expected"
-          printf 'sha256=%s\n' "$actual" >> "$GITHUB_OUTPUT"
+          printf 'environment_helper_sha256=%s\n' "$actual" >> "$GITHUB_OUTPUT"
+      - name: Update immutable release installer allowlist
+        id: release-installer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          run_as_root() {
+            if sudo -n "$@" 2>/dev/null; then
+              return 0
+            fi
+            {
+                test -n "${VPS_SUDO_PASSWORD:-}" || {
+                  echo "VPS_SUDO_PASSWORD is required when sudoers does not allow helper maintenance" >&2
+                  return 1
+                }
+                printf '%s\n' "$VPS_SUDO_PASSWORD" | sudo -S -p '' "$@"
+            }
+          }
+          result="$(run_as_root bash scripts/upgrade-release-installer /usr/local/sbin/apipilot-origin3-deploy)"
+          test "$result" = 'release_installer=jsonata_allowlist=present'
+          run_as_root bash -n /usr/local/sbin/apipilot-origin3-deploy
+          actual="$(run_as_root sha256sum /usr/local/sbin/apipilot-origin3-deploy | awk '{print $1}')"
+          printf 'release_installer_sha256=%s\n' "$actual" >> "$GITHUB_OUTPUT"
       - name: Publish helper summary
         if: always()
         shell: bash
         run: |
           echo "## Production deployment helper" >> "$GITHUB_STEP_SUMMARY"
-          echo "- SHA-256: \`${{ steps.install.outputs.sha256 || 'not recorded' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment helper SHA-256: \`${{ steps.install.outputs.environment_helper_sha256 || 'not recorded' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Immutable release installer SHA-256: \`${{ steps.release-installer.outputs.release_installer_sha256 || 'not recorded' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Preflight sudoers rule: \`/etc/sudoers.d/apipilot-origin3-env-preflight\`" >> "$GITHUB_STEP_SUMMARY"

@@ -37,14 +37,18 @@ environment_path = Path(sys.argv[1])
 patch_path = Path(sys.argv[2])
 check_only = sys.argv[3] == "true"
 entry = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
-boolean_keys = {"ADVANCED_FLOW_NODES_ENABLED", "API_CATALOG_MUTATIONS_ENABLED", "ATTACHMENT_UPLOADS_ENABLED", "BUG_REPORTS_ENABLED", "COLLECTION_MUTATIONS_ENABLED", "ENVIRONMENT_MUTATIONS_ENABLED", "FLOW_ENGINE_V2_RUNTIME", "FLOW_ENGINE_V2_SHADOW_COMPILE", "FLOW_ENGINE_V2_KILL_SWITCH", "FLOW_EXECUTION_ENABLED", "GOVERNANCE_MUTATIONS_ENABLED", "LOCAL_RUNNER_REGISTRATION_ENABLED", "MCP_ENABLED", "MONITOR_EXECUTION_ENABLED", "PUBLIC_REGISTRATION_ENABLED", "REQUEST_TESTNG_GENERATOR_ENABLED", "RUNNER_EXECUTION_ENABLED", "SCHEMA_MUTATIONS_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED", "TESTPILOT_RICH_ARTIFACTS_ENABLED", "TEST_AUTHORING_ENABLED", "TRASH_RESTORE_ENABLED", "WORKSPACE_CREATION_ENABLED", "WORKSPACE_INVITES_ENABLED"}
+boolean_keys = {"ADVANCED_FLOW_NODES_ENABLED", "API_CATALOG_MUTATIONS_ENABLED", "ATTACHMENT_UPLOADS_ENABLED", "BUG_REPORTS_ENABLED", "COLLECTION_MUTATIONS_ENABLED", "ENVIRONMENT_MUTATIONS_ENABLED", "FLOW_ENGINE_V2_RUNTIME", "FLOW_ENGINE_V2_SHADOW_COMPILE", "FLOW_ENGINE_V2_KILL_SWITCH", "FLOW_EXECUTION_ENABLED", "GOVERNANCE_MUTATIONS_ENABLED", "LOCAL_RUNNER_REGISTRATION_ENABLED", "LOCAL_RUNNER_REQUEST_SESSION_ENABLED", "MCP_ENABLED", "MONITOR_EXECUTION_ENABLED", "PUBLIC_REGISTRATION_ENABLED", "REQUEST_TESTNG_GENERATOR_ENABLED", "RUNNER_DB_POLL_WAIT_ENABLED", "RUNNER_EXECUTION_ENABLED", "RUNNER_INTERACTIVE_ASYNC_RESULT_ENABLED", "RUNNER_RESULT_BROKER_ENABLED", "RUNNER_WEBSOCKET_ENABLED", "RUNNER_WEBSOCKET_PROXY_CONTRACT_ENABLED", "SCHEMA_MUTATIONS_ENABLED", "SCRIPT_ASYNC_SEND_REQUEST_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED", "SCRIPT_MUTATION_BATCHING_ENABLED", "SCRIPT_PROGRAM_CACHE_ENABLED", "TESTPILOT_RICH_ARTIFACTS_ENABLED", "TEST_AUTHORING_ENABLED", "TRASH_RESTORE_ENABLED", "WORKSPACE_CREATION_ENABLED", "WORKSPACE_INVITES_ENABLED"}
 canary_keys = {"FLOW_ENGINE_V2_CANARY_WORKSPACES"}
 origin_keys = {"APP_ALLOWED_ORIGINS", "APP_URL", "MCP_ALLOWED_ORIGINS"}
 mcp_size_keys = {"MCP_REQUEST_MAX_BYTES"}
+script_count_keys = {"SCRIPT_MAX_SEND_REQUESTS", "SCRIPT_MAX_CONCURRENT_SEND_REQUESTS"}
+script_size_keys = {"SCRIPT_SEND_REQUEST_MAX_BODY_BYTES", "SCRIPT_SEND_REQUEST_MAX_RESPONSE_PREVIEW_BYTES"}
+script_budget_keys = {"SCRIPT_TOTAL_NETWORK_BUDGET_MS"}
 mcp_address_keys = {"MCP_HTTP_ADDR"}
 version_keys = {"TESTPILOT_MOBILE_RUNNER_MIN_VERSION"}
+millisecond_keys = {"RUNNER_INTERACTIVE_WAIT_MS"}
 cidr_list_keys = {"TRUSTED_PROXY_CIDRS"}
-allowed_keys = boolean_keys | canary_keys | origin_keys | mcp_size_keys | mcp_address_keys | version_keys | cidr_list_keys
+allowed_keys = boolean_keys | canary_keys | origin_keys | mcp_size_keys | script_count_keys | script_size_keys | script_budget_keys | mcp_address_keys | version_keys | millisecond_keys | cidr_list_keys
 entries = patch_path.read_text().splitlines()
 if not entries:
     raise SystemExit("deployment environment patch is empty")
@@ -114,8 +118,16 @@ for line in entries:
         raise SystemExit("deployment environment patch contains an invalid MCP_HTTP_ADDR")
     if key == "MCP_REQUEST_MAX_BYTES" and (not value.isdecimal() or not 1024 <= int(value) <= 10485760):
         raise SystemExit("deployment environment patch contains an invalid MCP_REQUEST_MAX_BYTES")
+    if key in script_count_keys and (not value.isdecimal() or not 1 <= int(value) <= 1000):
+        raise SystemExit("deployment environment patch contains an invalid script request count")
+    if key in script_size_keys and (not value.isdecimal() or not 1024 <= int(value) <= 52428800):
+        raise SystemExit("deployment environment patch contains an invalid script request size")
+    if key in script_budget_keys and (not value.isdecimal() or not 100 <= int(value) <= 120000):
+        raise SystemExit("deployment environment patch contains an invalid script network budget")
     if key in version_keys and not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value):
         raise SystemExit("deployment environment patch contains an invalid semantic version")
+    if key in millisecond_keys and (not value.isdecimal() or not 100 <= int(value) <= 30000):
+        raise SystemExit("deployment environment patch contains an invalid runner interactive wait")
     if key in cidr_list_keys and not is_cidr_list(value):
         raise SystemExit("deployment environment patch contains an invalid CIDR list")
     updates[key] = value
