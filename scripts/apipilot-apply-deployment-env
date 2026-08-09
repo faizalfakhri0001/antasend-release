@@ -37,7 +37,16 @@ environment_path = Path(sys.argv[1])
 patch_path = Path(sys.argv[2])
 check_only = sys.argv[3] == "true"
 entry = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
-boolean_keys = {"ADVANCED_FLOW_NODES_ENABLED", "API_CATALOG_MUTATIONS_ENABLED", "ATTACHMENT_UPLOADS_ENABLED", "BUG_REPORTS_ENABLED", "COLLECTION_MUTATIONS_ENABLED", "ENVIRONMENT_MUTATIONS_ENABLED", "FLOW_ENGINE_V2_RUNTIME", "FLOW_ENGINE_V2_SHADOW_COMPILE", "FLOW_ENGINE_V2_KILL_SWITCH", "FLOW_EXECUTION_ENABLED", "GOVERNANCE_MUTATIONS_ENABLED", "LOCAL_RUNNER_REGISTRATION_ENABLED", "LOCAL_RUNNER_REQUEST_SESSION_ENABLED", "MCP_ENABLED", "MCP_OAUTH_ENABLED", "MCP_AUTHORING_HARDENING_ENABLED", "MONITOR_EXECUTION_ENABLED", "PUBLIC_REGISTRATION_ENABLED", "REQUEST_TESTNG_GENERATOR_ENABLED", "RUNNER_DB_POLL_WAIT_ENABLED", "RUNNER_EXECUTION_ENABLED", "RUNNER_INTERACTIVE_ASYNC_RESULT_ENABLED", "RUNNER_RESULT_BROKER_ENABLED", "RUNNER_WEBSOCKET_ENABLED", "RUNNER_WEBSOCKET_PROXY_CONTRACT_ENABLED", "SCHEMA_MUTATIONS_ENABLED", "SCRIPT_ASYNC_SEND_REQUEST_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED", "SCRIPT_MUTATION_BATCHING_ENABLED", "SCRIPT_PROGRAM_CACHE_ENABLED", "TESTPILOT_RICH_ARTIFACTS_ENABLED", "TEST_AUTHORING_ENABLED", "TRASH_RESTORE_ENABLED", "WORKSPACE_CREATION_ENABLED", "WORKSPACE_INVITES_ENABLED"}
+boolean_keys = {"ADVANCED_FLOW_NODES_ENABLED", "API_CATALOG_MUTATIONS_ENABLED", "ATTACHMENT_UPLOADS_ENABLED", "BUG_REPORTS_ENABLED", "COLLECTION_MUTATIONS_ENABLED", "EMAIL_ENABLED", "ENVIRONMENT_MUTATIONS_ENABLED", "FLOW_ENGINE_V2_RUNTIME", "FLOW_ENGINE_V2_SHADOW_COMPILE", "FLOW_ENGINE_V2_KILL_SWITCH", "FLOW_EXECUTION_ENABLED", "GOVERNANCE_MUTATIONS_ENABLED", "LOCAL_RUNNER_REGISTRATION_ENABLED", "LOCAL_RUNNER_REQUEST_SESSION_ENABLED", "MCP_ENABLED", "MCP_OAUTH_ENABLED", "MCP_AUTHORING_HARDENING_ENABLED", "MONITOR_EXECUTION_ENABLED", "PUBLIC_REGISTRATION_ENABLED", "REQUEST_TESTNG_GENERATOR_ENABLED", "RUNNER_DB_POLL_WAIT_ENABLED", "RUNNER_EXECUTION_ENABLED", "RUNNER_INTERACTIVE_ASYNC_RESULT_ENABLED", "RUNNER_RESULT_BROKER_ENABLED", "RUNNER_WEBSOCKET_ENABLED", "RUNNER_WEBSOCKET_PROXY_CONTRACT_ENABLED", "SCHEMA_MUTATIONS_ENABLED", "SCRIPT_ASYNC_SEND_REQUEST_ENABLED", "SCRIPT_GENERATOR_V2_ENABLED", "SCRIPT_MUTATION_BATCHING_ENABLED", "SCRIPT_PROGRAM_CACHE_ENABLED", "TESTPILOT_RICH_ARTIFACTS_ENABLED", "TEST_AUTHORING_ENABLED", "TRASH_RESTORE_ENABLED", "WORKSPACE_CREATION_ENABLED", "WORKSPACE_INVITES_ENABLED"}
+email_address_keys = {"EMAIL_FROM_ADDRESS", "EMAIL_REPLY_TO"}
+email_base_url_keys = {"MAILTRAP_API_BASE_URL"}
+email_host_keys = {"MAILTRAP_SMTP_HOST"}
+email_mode_keys = {"MAILTRAP_MODE"}
+email_name_keys = {"EMAIL_FROM_NAME"}
+email_port_keys = {"MAILTRAP_SMTP_PORT"}
+email_timeout_keys = {"EMAIL_HTTP_TIMEOUT_SECONDS"}
+email_transport_keys = {"MAILTRAP_TRANSPORT"}
+email_username_keys = {"MAILTRAP_SMTP_USERNAME"}
 canary_keys = {"FLOW_ENGINE_V2_CANARY_WORKSPACES", "MCP_AUTHORING_HARDENING_CANARY_WORKSPACES"}
 origin_keys = {"APP_ALLOWED_ORIGINS", "APP_URL", "MCP_ALLOWED_ORIGINS"}
 mcp_size_keys = {"MCP_REQUEST_MAX_BYTES"}
@@ -48,7 +57,7 @@ mcp_address_keys = {"MCP_HTTP_ADDR"}
 version_keys = {"TESTPILOT_MOBILE_RUNNER_MIN_VERSION"}
 millisecond_keys = {"RUNNER_INTERACTIVE_WAIT_MS"}
 cidr_list_keys = {"TRUSTED_PROXY_CIDRS"}
-allowed_keys = boolean_keys | canary_keys | origin_keys | mcp_size_keys | script_count_keys | script_size_keys | script_budget_keys | mcp_address_keys | version_keys | millisecond_keys | cidr_list_keys
+allowed_keys = boolean_keys | email_address_keys | email_base_url_keys | email_host_keys | email_mode_keys | email_name_keys | email_port_keys | email_timeout_keys | email_transport_keys | email_username_keys | canary_keys | origin_keys | mcp_size_keys | script_count_keys | script_size_keys | script_budget_keys | mcp_address_keys | version_keys | millisecond_keys | cidr_list_keys
 entries = patch_path.read_text().splitlines()
 if not entries:
     raise SystemExit("deployment environment patch is empty")
@@ -114,6 +123,24 @@ for line in entries:
         origins = value.split(",")
         if not origins or len(set(origins)) != len(origins) or not all(is_https_origin(origin) for origin in origins):
             raise SystemExit("deployment environment patch contains invalid MCP_ALLOWED_ORIGINS")
+    if key in email_address_keys and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+        raise SystemExit("deployment environment patch contains an invalid email address")
+    if key in email_base_url_keys and not is_https_origin(value):
+        raise SystemExit("deployment environment patch contains an invalid Mailtrap API base URL")
+    if key in email_host_keys and not re.fullmatch(r"[A-Za-z0-9.-]+", value):
+        raise SystemExit("deployment environment patch contains an invalid SMTP host")
+    if key in email_mode_keys and value not in {"sandbox", "transactional"}:
+        raise SystemExit("deployment environment patch contains an invalid Mailtrap mode")
+    if key in email_name_keys and not value.strip():
+        raise SystemExit("deployment environment patch contains an empty email sender name")
+    if key in email_port_keys and (not value.isdecimal() or not 1 <= int(value) <= 65535):
+        raise SystemExit("deployment environment patch contains an invalid SMTP port")
+    if key in email_timeout_keys and (not value.isdecimal() or not 1 <= int(value) <= 120):
+        raise SystemExit("deployment environment patch contains an invalid email timeout")
+    if key in email_transport_keys and value not in {"api", "smtp"}:
+        raise SystemExit("deployment environment patch contains an invalid Mailtrap transport")
+    if key in email_username_keys and (not value or any(character.isspace() for character in value)):
+        raise SystemExit("deployment environment patch contains an invalid SMTP username")
     if key == "MCP_HTTP_ADDR" and not re.fullmatch(r"127\.0\.0\.1:[1-9][0-9]{0,4}", value):
         raise SystemExit("deployment environment patch contains an invalid MCP_HTTP_ADDR")
     if key == "MCP_REQUEST_MAX_BYTES" and (not value.isdecimal() or not 1024 <= int(value) <= 10485760):
